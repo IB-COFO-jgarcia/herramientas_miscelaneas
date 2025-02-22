@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Herramientas :: Analizar log :: SCORT :: Tiempo entre comandos ::</title>
+</head>
+<style>
+  .rojo-y-negrita {
+    color: red;
+    font-weight: bold;
+  }
+
+  .morado {
+    color: rgb(126, 3, 138);
+    font-weight: bold;
+  }
+
+  .naranja {
+    color: rgb(255, 102, 0);
+    font-weight: bold;
+  }
+
+  .nota {
+    color: rgb(255, 102, 0);
+    font-style: italic;
+  }
+</style>
+
+<body>
+  <div id="titulo"></div>
+  <input type="file" id="fileInput" /><br>
+  <textarea id="input" rows="20" cols="80"></textarea><br>
+  <button id="process">Process</button>
+  <div id="output"></div>
+
+  <script>
+    const version = "1.0.1";
+    document.title = "v." + version + " " + document.title;
+    document.getElementById("titulo").innerText ="Version: " + version;
+    const input = document.getElementById("input");
+    const output = document.getElementById("output");
+    const processButton = document.getElementById("process");
+
+    processButton.addEventListener("click", () => {
+      let commands = [];
+      let totalTime = 0;
+      let totalCommands = 0;      
+      output.innerHTML = "";
+      const text = input.value;
+      const lines = text.split("\n");
+      let previousTimestamp = null;
+      let commandIndex = 0;
+      let lineaComandoEncontrada = false;
+      let lineaSiguienteComando = false;
+      let timestamp;
+      let timestampDate;
+      let comando;
+      let lineasSinEstudiar = 0;
+      let primerComandoEncontrado = false;
+      let tiempoMayor = 0;
+      for (const line of lines) {
+        // tratamiento linea comando
+        if (/(.*)ScortImplements.*-\s+\[Comando\](.*)/.test(line)) {
+          //console.log(`lineas sin Estudiar: ${lineasSinEstudiar}`);
+          
+          // tratamiento especial cuando un comando no tiene respuesta
+          // se le pone tiempo -1
+          if(primerComandoEncontrado && !lineaSiguienteComando){
+            totalCommands++;
+            commands[commandIndex++] = {
+              command: comando,
+              time: -1
+            };
+          }
+          lineasSinEstudiar = 0;
+          if(!primerComandoEncontrado){
+            primerComandoEncontrado = true;
+          }
+
+          lineaComandoEncontrada = true;
+          lineaSiguienteComando = false;
+          // asigno el texto del comando
+          comando = line.split("[Comando] ")[1];
+          previousTimestamp = obtenerFechaLine(line);
+          //console.log(`encontrado fecha: ${previousTimestamp} - comando: ${comando}`)
+        }
+        // tratamiento linea siguiente a linea comando
+        else if(lineaComandoEncontrada && !lineaSiguienteComando) {
+          lineaSiguienteComando = true;
+          lineaComandoEncontrada = false;
+          timestampDate = obtenerFechaLine(line);
+          //console.log(`Linea siguente a comando fecha: ${timestampDate}` )
+          let timeDiff;
+          timeDiff = (timestampDate - previousTimestamp) / 1000;
+          if(tiempoMayor < timeDiff){
+            tiempoMayor = timeDiff.toFixed(1);
+          }
+          totalTime += timeDiff;
+          totalCommands++;
+          //previousTimestamp = timestampDate;
+          // asigno el tiempo transcurrido
+          commands[commandIndex] = {
+            command: comando,
+            time: timeDiff
+          };
+          commandIndex++;
+        } else {
+          lineasSinEstudiar++ 
+        }
+      }
+
+
+      let codigo = "<ol start='1'>"
+      // Mostrar resumen
+      let codigo2 = "";
+
+      codigo2 += "<div><ul>Resumen:";
+      codigo2 += `<li>Total de comandos: ${totalCommands}`;
+      codigo2 += `<li>Total de tiempo: ${totalTime.toFixed(1)} seg.`;
+      let averageTime = totalTime / totalCommands.toFixed(1);
+      codigo2 += `<li>Media de tiempo: <span class="morado">${averageTime.toFixed(1)} seg.</span>`;
+      codigo2 += `<ul>Comandos superior a la media de tiempo:`;
+      //commands.sort((a, b) => b.time - a.time).slice(0, 3).forEach((command) => {
+      //    codigo += `<li>${command.command}: ${command.time.toFixed(1)} seg.`;
+      //    });        
+      let pos = 0;
+      console.log(`tiempoMayor: ${tiempoMayor}`);
+      const valorPadSeg = tiempoMayor.toString().length;
+      const valorPadMSeg = valorPadSeg + 2;
+      const valorPadTotalComandos = totalCommands.toString().length;      
+
+      commands.forEach((command) => {
+        let style = "";
+        if (command.time >= 25) {
+          style = "class='rojo-y-negrita'"
+        } else if(command.time >= averageTime){
+          style = "class='morado'"
+        } else if(command.time == -1) {
+          // tratamiento especial (cuando tiene -1) indicar que no tiene respuesta
+          style = "class='naranja'"
+          command.time = 0;
+          command.command += ` <span class='nota'>(sin respuesta)</span>`
+        }
+        if(command.time > -2) { // al parecer se ha cuela un command.time con valor undefined
+          let seg = command.time.toFixed(1).toString().padStart(valorPadSeg,'_');
+          let mseg = command.time.toFixed(3).toString().padStart(valorPadMSeg,'_');
+          codigo += `<li>Tiempo <span ${style}>${seg} seg. (${mseg} ms.)</span> [Comando] ${command.command}`;
+          if (command.time > averageTime) {
+            codigo2 += `<li>Tiempo  (${pos.toString().padStart(valorPadTotalComandos,'_')}): <span ${style}>${seg} seg. (${mseg} ms.) [Comando] ${command.command}</span>`;
+          }
+        } else {
+          console.log("valor erroneo: " +  command.time)
+        }
+        pos++;
+      });
+      codigo += "</ol>";
+      codigo2 += "</ul></ul></div>";
+      codigo += codigo2;
+      output.innerHTML = codigo;
+    });
+
+
+  fileInput.addEventListener('change', (event) => {
+    const file = event.target.files[0];
+    const reader = new FileReader();
+
+    reader.onload = (event) => {
+      const fileContentText = event.target.result;
+      input.value = fileContentText;
+    };
+
+    reader.readAsText(file);
+  });
+
+  // funcion que de una linea de traza obtiene las dos primeras posiciones separadas por espacio y convierte en fecha con formato ISO
+  function obtenerFechaLine(line) {
+    const parts = line.split(" ");
+    const timestamp = parts[0] + " " + parts[1];
+    const fecha = new Date(timestamp.replace(/-/g, '-').replace(/:/g, ':').replace(/,/g, '.').concat('Z'));
+    //console.log(`obtenerFechaLine(...) -> fecha: ${fecha}, timestamp: ${timestamp}`);
+    return fecha;
+  }
+  </script>
+</body>
+
+</html>
